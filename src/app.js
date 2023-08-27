@@ -7,7 +7,8 @@ const rateLimit = require("express-rate-limit");
 const app = express();
 
 const userRouter = require("./routers/userRouter");
-const seedRouter = require("./routers/seedRouter")
+const seedRouter = require("./routers/seedRouter");
+const { errorResponse } = require("./helper/responseHandler");
 
 // Configure RateLimite
 const rateLimiter = rateLimit({
@@ -22,7 +23,7 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(rateLimiter);
 
-app.use("/api/user", userRouter);
+app.use("/api/users", userRouter);
 app.use("/api/seed", seedRouter);
 
 // Client error handling
@@ -32,10 +33,10 @@ app.use((req, res, next) => {
 
 // Server error handling -> all the errors
 app.use((err, req, res, next) => {
-  return res.status(err.status || 500).json({
-    success: false,
-    message: err.message,
-  });
+  return errorResponse(res, {
+    statusCode: err.status,
+    message: err.message
+  })
 });
 
 module.exports = app;
