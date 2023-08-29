@@ -1,8 +1,12 @@
 const createError = require("http-errors");
-const mongoose = require("mongoose")
 
 const { User } = require("../models/userModel");
 const { successResponse } = require("../helper/responseHandler");
+const { findWithId } = require("../services/findItem");
+const { deleteImage } = require("../helper/deleteImage");
+const { createJSONWebToken } = require("../helper/jsonWebToken");
+const { jwtActivationKey, clientUrl } = require("../secret");
+const { emailWithNodeMail } = require("../helper/email");
 
 
 // Get Users for admin
@@ -48,27 +52,76 @@ module.exports.getUsers = async (req, res, next) => {
   }
 };
 
-// Get Single User 
-module.exports.getUser = async (req, res, next) => {
+// Get Single User for admin
+module.exports.getUserById = async (req, res, next) => {
   try {
     const id = req.params.id
     const options = { password: 0 }
-
-    const user = await User.findById(id, options)
-
-    if (!user) throw createError(404, 'user does not exist with this id')
-
+    const user = await findWithId(User, id, options)
     return successResponse(res, {
       statusCode: 200, message: "user were returned Successfully!", payload: {
         user
       }
     })
-
   } catch (error) {
-    if (error instanceof mongoose.Error) {
-      next(createError(400, 'Invalid User Id'))
-      return
-    }
+    next(error)
   }
 }
 
+// Delete User for admin
+module.exports.deleteUserById = async (req, res, next) => {
+  try {
+    const id = req.params.id
+    const options = { password: 0 }
+    const user = await findWithId(User, id, options)
+
+    const userImagePath = user.image
+
+    deleteImage(userImagePath)
+
+    await User.findByIdAndDelete({ _id: id, isAdmin: false })
+
+    return successResponse(res, {
+      statusCode: 200, message: "user was deleted Successfully!"
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+// Create User
+module.exports.processRegister = async (req, res, next) => {
+  try {
+    const { name, email, password, phone, addresss } = req.body
+
+    const userExists = await User.exists({ email: email })
+    if (userExists) throw createError(409, 'User with this email already exits. Please sign in.')
+
+    // Create jwt
+    const token = createJSONWebToken({ name, email, password, phone, addresss }, jwtActivationKey, '10m')
+
+    // Prepaer Email
+    const emailData = {
+      email,
+      subject: "Account Activation Email",
+      html: `
+        <h2>Hello ${name} !</h2>
+        <p>Please click here to <a href="${clientUrl}/api/users/activate/${token}" target="_blank">activate your account</a> </p>
+      `
+    }
+
+    // send email with nodemailer
+    try {
+      await emailWithNodeMail(emailData)
+    } catch (error) {
+      next(createError(500, 'Failed to send verification email'))
+      return
+    }
+
+    return successResponse(res, {
+      statusCode: 200, message: `Please go to your ${email} for completing your registration process`, payload: { token }
+    })
+  } catch (error) {
+    next(error)
+  }
+}
