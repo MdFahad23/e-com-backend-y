@@ -1,4 +1,5 @@
 const createError = require("http-errors");
+const jwt = require("jsonwebtoken")
 
 const { User } = require("../models/userModel");
 const { successResponse } = require("../helper/responseHandler");
@@ -89,16 +90,16 @@ module.exports.deleteUserById = async (req, res, next) => {
   }
 }
 
-// Create User
+// Create User and send verify email
 module.exports.processRegister = async (req, res, next) => {
   try {
-    const { name, email, password, phone, addresss } = req.body
+    const { name, email, password, phone, address } = req.body
 
     const userExists = await User.exists({ email: email })
     if (userExists) throw createError(409, 'User with this email already exits. Please sign in.')
 
     // Create jwt
-    const token = createJSONWebToken({ name, email, password, phone, addresss }, jwtActivationKey, '10m')
+    const token = createJSONWebToken({ name, email, password, phone, address }, jwtActivationKey, '10m')
 
     // Prepaer Email
     const emailData = {
@@ -121,6 +122,39 @@ module.exports.processRegister = async (req, res, next) => {
     return successResponse(res, {
       statusCode: 200, message: `Please go to your ${email} for completing your registration process`, payload: { token }
     })
+  } catch (error) {
+    next(error)
+  }
+}
+
+// Verify User and activate Account
+module.exports.activateUserAccount = async (req, res, next) => {
+  try {
+    const token = req.body.token
+    if (!token) throw createError(404, 'Token not found!')
+
+    try {
+      const decoded = jwt.verify(token, jwtActivationKey)
+      if (!decoded) throw createError(401, 'Unable to verify user')
+
+      const userExists = await User.exists({ email: decoded.email })
+      if (userExists) throw createError(409, 'User with this email already exits. Please sign in.')
+
+      await User.create(decoded)
+
+      return successResponse(res, {
+        statusCode: 201, message: "User was registered successfully"
+      })
+    } catch (error) {
+      if (error.name === 'TokenExpiredError') {
+        throw createError(401, 'Token has expired')
+      } else if (error.name === 'JsonWebTokenError') {
+        throw createError(401, 'Invalid Token')
+      } else {
+        throw error
+      }
+    }
+
   } catch (error) {
     next(error)
   }
